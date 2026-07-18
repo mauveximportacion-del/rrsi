@@ -1,9 +1,10 @@
 import { useState, useMemo, useRef } from "react";
 import { Calculator, Package, Globe, FileText, MapPin, TrendingUp, BarChart3, PieChart, Download, FileSpreadsheet, Printer, Share2, RotateCcw, Save, AlertCircle, ChevronDown, Check } from "lucide-react";
 import jsPDF from "jspdf";
-import * as XLSX from "xlsx";
+import * as ExcelJS from "exceljs";
 
 const fmtUsd = (n: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format(n);
+const fmtPen = (n: number) => new Intl.NumberFormat("es-PE", { style: "currency", currency: "PEN", minimumFractionDigits: 2 }).format(n);
 
 function Section({ id, expanded, setExpanded, icon: Icon, title, children, count }: { id: string; expanded: string | null; setExpanded: (v: string | null) => void; icon: React.ComponentType<{ size?: number; className?: string }>; title: string; children: React.ReactNode; count?: string }) {
   return (
@@ -41,11 +42,17 @@ function Input({ label, value, onChange, type = "number", suffix, placeholder }:
   );
 }
 
-function ResultCard({ label, value, color = "text-accent", icon }: { label: string; value: string; color?: string; icon?: React.ReactNode }) {
+function ResultCard({ label, value, color = "text-accent", icon, secondary }: { label: string; value: string; color?: string; icon?: React.ReactNode; secondary?: string }) {
   return (
     <div className="bg-gray-50 dark:bg-dark-bg rounded-xl p-3 border border-gray-100 dark:border-white/10 hover:shadow-md hover:-translate-y-0.5 transition-all group">
       <div className="flex items-center gap-1.5 mb-1.5">{icon}<span className="text-[9px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{label}</span></div>
       <div className={`text-lg font-extrabold ${color}`}>{value}</div>
+      {secondary && (
+        <div className="flex items-center gap-1 mt-1">
+          <span className="text-[8px] px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded font-bold">PEN</span>
+          <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">{secondary}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -113,22 +120,18 @@ export default function Tarifarios() {
   }, [d]);
 
   const reset = () => { setD(initialState); setTab("simulador"); setExpanded("producto"); };
-
   const exportPDF = () => {
     const doc = new jsPDF();
     const w = doc.internal.pageSize.getWidth();
     const margin = 15;
     let y = 0;
 
-    // Header background
+    // Header
     doc.setFillColor(0, 42, 107);
     doc.rect(0, 0, w, 45, "F");
-
-    // Accent line
     doc.setFillColor(201, 161, 91);
     doc.rect(0, 45, w, 3, "F");
 
-    // Title
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(20);
     doc.setFont("helvetica", "bold");
@@ -136,14 +139,13 @@ export default function Tarifarios() {
     doc.setFontSize(12);
     doc.text("PUESTO EN LIMA", w / 2, 27, { align: "center" });
 
-    // Date
     doc.setFontSize(8);
     doc.setFont("helvetica", "normal");
-    doc.text(`Fecha: ${new Date().toLocaleDateString("es-PE")} | Hora: ${new Date().toLocaleTimeString("es-PE")}`, w / 2, 35, { align: "center" });
+    doc.text(`Fecha: ${new Date().toLocaleDateString("es-PE")} | Hora: ${new Date().toLocaleTimeString("es-PE")} | Tipo Cambio: S/ ${d.tipoCambio}`, w / 2, 35, { align: "center" });
 
     y = 55;
 
-    // Product info table
+    // Product info
     doc.setFillColor(245, 245, 245);
     doc.roundedRect(margin, y, w - margin * 2, 28, 3, 3, "F");
     doc.setDrawColor(201, 161, 91);
@@ -168,7 +170,7 @@ export default function Tarifarios() {
 
     y += 36;
 
-    // Results table
+    // Results table header
     doc.setFillColor(0, 42, 107);
     doc.roundedRect(margin, y, w - margin * 2, 8, 2, 2, "F");
     doc.setTextColor(255, 255, 255);
@@ -177,21 +179,32 @@ export default function Tarifarios() {
     doc.text("RESULTADOS DEL COSTEO", margin + 5, y + 5.5);
     y += 10;
 
-    const tableData = [
-      ["Costo EXW", fmtUsd(calc.costoEXW), "blue"],
-      ["Costo FOB", fmtUsd(calc.costoFOB), "purple"],
-      ["Costo CIF", fmtUsd(calc.costoCIF), "green"],
-      ["Base Imponible", fmtUsd(calc.baseImponible), "gray"],
-      ["Derechos Arancelarios", fmtUsd(calc.derechosArancel), "orange"],
-      ["IGV", fmtUsd(calc.igv), "red"],
-      ["IPM", fmtUsd(calc.ipm), "yellow"],
-      ["Percepcion", fmtUsd(calc.percepcion), "pink"],
-      ["Tributos", fmtUsd(calc.tributos), "redbold"],
-      ["Gastos Internacionales", fmtUsd(calc.gastosInt), "gray"],
-      ["Gastos Locales", fmtUsd(calc.gastosLoc), "gray"],
+    // Table header row
+    doc.setFillColor(0, 42, 107);
+    doc.rect(margin, y, w - margin * 2, 7, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "bold");
+    doc.text("Concepto", margin + 5, y + 5);
+    doc.text("USD", w - margin - 50, y + 5, { align: "center" });
+    doc.text("PEN", w - margin - 20, y + 5, { align: "center" });
+    y += 7;
+
+    const tableRows: [string, number][] = [
+      ["Costo EXW", calc.costoEXW],
+      ["Costo FOB", calc.costoFOB],
+      ["Costo CIF", calc.costoCIF],
+      ["Base Imponible", calc.baseImponible],
+      ["Derechos Arancelarios", calc.derechosArancel],
+      ["IGV", calc.igv],
+      ["IPM", calc.ipm],
+      ["Percepcion", calc.percepcion],
+      ["Tributos", calc.tributos],
+      ["Gastos Internacionales", calc.gastosInt],
+      ["Gastos Locales", calc.gastosLoc],
     ];
 
-    tableData.forEach((row, i) => {
+    tableRows.forEach((row, i) => {
       const bg = i % 2 === 0 ? [250, 250, 250] : [255, 255, 255];
       doc.setFillColor(bg[0], bg[1], bg[2]);
       doc.rect(margin, y, w - margin * 2, 7, "F");
@@ -206,37 +219,44 @@ export default function Tarifarios() {
 
       doc.setFont("helvetica", "bold");
       doc.setTextColor(0, 42, 107);
-      doc.text(row[1], w - margin - 5, y + 5, { align: "right" });
+      doc.text(fmtUsd(row[1]), w - margin - 50, y + 5, { align: "center" });
+
+      doc.setTextColor(180, 130, 40);
+      doc.text(fmtPen(row[1] * d.tipoCambio), w - margin - 20, y + 5, { align: "center" });
+
       y += 7;
     });
 
     // Summary box
     y += 3;
     doc.setFillColor(0, 42, 107);
-    doc.roundedRect(margin, y, w - margin * 2, 22, 3, 3, "F");
+    doc.roundedRect(margin, y, w - margin * 2, 30, 3, 3, "F");
     doc.setFillColor(201, 161, 91);
-    doc.rect(margin, y + 22, w - margin * 2, 1, "F");
+    doc.rect(margin, y + 30, w - margin * 2, 1, "F");
 
-    const sumCols = [
-      ["Puesto en Lima", fmtUsd(calc.costoPuestoLima)],
-      ["Por Unidad", fmtUsd(calc.costoUnitario)],
-      ["Capital", fmtUsd(calc.capitalNecesario)],
+    const sumItems: [string, number][] = [
+      ["PUESTO EN LIMA", calc.costoPuestoLima],
+      ["POR UNIDAD", calc.costoUnitario],
+      ["CAPITAL", calc.capitalNecesario],
     ];
     const sumColW = (w - margin * 2) / 3;
-    sumCols.forEach((s, i) => {
+    sumItems.forEach((s, i) => {
       doc.setTextColor(255, 255, 255);
       doc.setFontSize(7);
       doc.setFont("helvetica", "normal");
-      doc.text(s[0].toUpperCase(), margin + sumColW * i + sumColW / 2, y + 7, { align: "center" });
-      doc.setFontSize(11);
+      doc.text(s[0], margin + sumColW * i + sumColW / 2, y + 7, { align: "center" });
+      doc.setFontSize(10);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(201, 161, 91);
-      doc.text(s[1], margin + sumColW * i + sumColW / 2, y + 16, { align: "center" });
+      doc.text(fmtUsd(s[1]), margin + sumColW * i + sumColW / 2, y + 15, { align: "center" });
+      doc.setFontSize(8);
+      doc.setTextColor(255, 200, 100);
+      doc.text(fmtPen(s[1] * d.tipoCambio), margin + sumColW * i + sumColW / 2, y + 22, { align: "center" });
     });
 
-    y += 30;
+    y += 38;
 
-    // Distribution bars
+    // Distribution
     doc.setFillColor(0, 42, 107);
     doc.roundedRect(margin, y, w - margin * 2, 8, 2, 2, "F");
     doc.setTextColor(255, 255, 255);
@@ -250,7 +270,7 @@ export default function Tarifarios() {
       ["Impuestos", calc.tributos, [239, 68, 68]],
       ["Logistica", calc.gastosInt + calc.gastosLoc, [16, 185, 129]],
     ];
-    const barW = w - margin * 2 - 60;
+    const barW = w - margin * 2 - 70;
     distData.forEach((item) => {
       const label = item[0];
       const value = item[1];
@@ -268,7 +288,9 @@ export default function Tarifarios() {
 
       doc.setFont("helvetica", "bold");
       doc.setTextColor(0, 42, 107);
-      doc.text(`${fmtUsd(value)} (${(pct * 100).toFixed(1)}%)`, w - margin - 2, y + 5, { align: "right" });
+      doc.text(fmtUsd(value), w - margin - 50, y + 5, { align: "center" });
+      doc.setTextColor(180, 130, 40);
+      doc.text(fmtPen(value * d.tipoCambio), w - margin - 20, y + 5, { align: "center" });
       y += 10;
     });
 
@@ -282,91 +304,381 @@ export default function Tarifarios() {
     doc.text("RRS IMPORT Academy - Simulador de Importacion", margin, y + 3);
     doc.text(`Generado: ${new Date().toLocaleDateString("es-PE")}`, w - margin, y + 3, { align: "right" });
 
-    doc.save("simulacion-importacion.pdf");
+    doc.save("simulacion-costeo.pdf");
   };
 
-  const exportExcel = () => {
-    const wb = XLSX.utils.book_new();
+  const exportExcel = async () => {
+    const wb = new ExcelJS.Workbook();
+    wb.creator = "RRS IMPORT Academy";
+    wb.created = new Date();
 
-    // Costeo sheet
-    const costeoData = [
-      ["CALCULA TU INVERSION - PUESTO EN LIMA"],
-      [""],
-      ["DATOS DEL PRODUCTO", "", "", "GASTOS INTERNACIONALES", ""],
-      ["Producto", d.nombre || "N/A", "", "Flete Internacional", d.fleteInternacional],
-      ["Pais", d.pais, "", "Seguro Internacional", d.seguroInternacional],
-      ["Proveedor", d.proveedor || "N/A", "", "Gastos Bancarios", d.gastosBancarios],
-      ["Moneda", d.moneda, "", "Inspeccion", d.inspeccion],
-      ["Cantidad", d.cantidad, "", "Certificados", d.certificados],
-      ["Precio Unitario", d.precioUnitario, "", "Otros", d.otrosGastosInt],
-      ["Tipo de Cambio", d.tipoCambio, "", "", ""],
-      ["Incoterm", d.incoterm, "", "IMPUESTOS", ""],
-      ["", "", "", "Arancel %", d.arancel],
-      ["GASTOS LOCALES", "", "", "IGV %", d.igv],
-      ["Agencia Aduanas", d.agenciaAduanas, "", "IPM %", d.ipm],
-      ["Terminal Portuario", d.terminalPortuario, "", "Percepcion %", d.percepcion],
-      ["Almacenaje", d.almacenaje, "", "", ""],
-      ["Transporte Lima", d.transporteLima, "", "", ""],
-      ["Descarga", d.descarga, "", "", ""],
-      ["Manipuleo", d.manipuleo, "", "", ""],
-      ["Otros", d.otrosGastosLoc, "", "", ""],
-      ["", "", "", "", ""],
-      ["RESULTADOS DEL COSTEO", "", "", "", ""],
-      ["Concepto", "", "Monto (USD)", "", ""],
-      ["Costo EXW", "", calc.costoEXW, "", ""],
-      ["Costo FOB", "", calc.costoFOB, "", ""],
-      ["Costo CIF", "", calc.costoCIF, "", ""],
-      ["Base Imponible", "", calc.baseImponible, "", ""],
-      ["Derechos Arancelarios", "", calc.derechosArancel, "", ""],
-      ["IGV", "", calc.igv, "", ""],
-      ["IPM", "", calc.ipm, "", ""],
-      ["Percepcion", "", calc.percepcion, "", ""],
-      ["Tributos Totales", "", calc.tributos, "", ""],
-      ["Gastos Internacionales", "", calc.gastosInt, "", ""],
-      ["Gastos Locales", "", calc.gastosLoc, "", ""],
-      ["", "", "", "", ""],
-      ["COSTO PUESTO EN LIMA", "", calc.costoPuestoLima, "", ""],
-      ["COSTO POR UNIDAD", "", calc.costoUnitario, "", ""],
-      ["CAPITAL NECESARIO", "", calc.capitalNecesario, "", ""],
+    const BLUE = "2F5496";
+    const GOLD = "C9A15B";
+    const WHITE = "FFFFFF";
+    const LIGHT_BG = "F2F2F2";
+    const BORDER_COLOR = "B4B4B4";
+
+    const thinBorder: Partial<ExcelJS.Borders> = {
+      top: { style: "thin", color: { argb: BORDER_COLOR } },
+      left: { style: "thin", color: { argb: BORDER_COLOR } },
+      bottom: { style: "thin", color: { argb: BORDER_COLOR } },
+      right: { style: "thin", color: { argb: BORDER_COLOR } },
+    };
+
+    const sectionHeader = (row: ExcelJS.Row, text: string, cols: number) => {
+      row.getCell(1).value = text;
+      row.getCell(1).font = { bold: true, color: { argb: WHITE }, size: 11 };
+      row.getCell(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: BLUE } };
+      row.getCell(1).alignment = { horizontal: "left", vertical: "middle" };
+      row.height = 24;
+      for (let c = 1; c <= cols; c++) {
+        row.getCell(c).border = thinBorder;
+        row.getCell(c).fill = { type: "pattern", pattern: "solid", fgColor: { argb: BLUE } };
+      }
+    };
+
+    const subHeader = (row: ExcelJS.Row, texts: string[]) => {
+      texts.forEach((t, i) => {
+        const cell = row.getCell(i + 1);
+        cell.value = t;
+        cell.font = { bold: true, color: { argb: WHITE }, size: 10 };
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: GOLD } };
+        cell.alignment = { horizontal: "center", vertical: "middle" };
+        cell.border = thinBorder;
+      });
+      row.height = 20;
+    };
+
+    const dataRow = (row: ExcelJS.Row, values: (string | number)[], isAlt: boolean) => {
+      values.forEach((v, i) => {
+        const cell = row.getCell(i + 1);
+        cell.value = v;
+        cell.border = thinBorder;
+        cell.alignment = { horizontal: i === 0 ? "left" : "right", vertical: "middle" };
+        if (isAlt) {
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: LIGHT_BG } };
+        }
+      });
+    };
+
+    // ============ COSTEO SHEET ============
+    const ws = wb.addWorksheet("Costeo", { properties: { defaultColWidth: 18 } });
+    ws.columns = [
+      { width: 28 }, { width: 22 }, { width: 20 }, { width: 22 }, { width: 20 },
     ];
 
-    const ws = XLSX.utils.aoa_to_sheet(costeoData);
-    ws["!cols"] = [{ wch: 25 }, { wch: 20 }, { wch: 18 }, { wch: 22 }, { wch: 15 }];
-    XLSX.utils.book_append_sheet(wb, ws, "Costeo");
+    // Title
+    const titleRow = ws.addRow(["CALCULA TU INVERSION - PUESTO EN LIMA"]);
+    titleRow.getCell(1).font = { bold: true, color: { argb: WHITE }, size: 14 };
+    titleRow.getCell(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: BLUE } };
+    titleRow.getCell(1).alignment = { horizontal: "center", vertical: "middle" };
+    titleRow.height = 32;
+    for (let c = 1; c <= 5; c++) {
+      titleRow.getCell(c).fill = { type: "pattern", pattern: "solid", fgColor: { argb: BLUE } };
+      titleRow.getCell(c).border = thinBorder;
+    }
+    ws.mergeCells(1, 1, 1, 5);
 
-    // Financiero sheet
-    const financieroData = [
-      ["SIMULADOR FINANCIERO"],
-      [""],
-      ["DATOS DE VENTAS", "", "GASTOS OPERATIVOS", ""],
-      ["Precio Venta Unit.", d.precioVenta, "Inversion Inicial", d.inversionInicial],
-      ["Cantidad a Vender", d.cantidadVender || d.cantidad, "Publicidad", d.publicidad],
-      ["", "", "Marketing", d.marketing],
-      ["", "", "Sueldos", d.sueldos],
-      ["", "", "Alquiler", d.alquiler],
-      ["", "", "Servicios", d.servicios],
-      ["", "", "Otros", d.otrosGastosOp],
-      ["", "", "", ""],
-      ["RESULTADOS FINANCIEROS", "", "", ""],
-      ["Concepto", "", "Monto", ""],
-      ["Ventas Totales", "", calc.ventasTotales, ""],
-      ["Costo Mercaderia", "", calc.costoPuestoLima, ""],
-      ["Utilidad Bruta", "", calc.utilidadBruta, ""],
-      ["Gastos Operativos", "", calc.gastosOp, ""],
-      ["Utilidad Neta", "", calc.utilidadNeta, ""],
-      ["", "", "", ""],
-      ["INDICADORES", "", "", ""],
-      ["Margen %", calc.margen.toFixed(1), "", ""],
-      ["ROI %", calc.roi.toFixed(1), "", ""],
-      ["Ganancia/Unidad", calc.gananciaUnidad.toFixed(2), "", ""],
-      ["Punto Equilibrio", calc.puntoEquilibrio.toFixed(2), "", ""],
+    // Date row
+    const dateRow = ws.addRow([`Fecha: ${new Date().toLocaleDateString("es-PE")}  |  Tipo Cambio: S/ ${d.tipoCambio}`]);
+    dateRow.getCell(1).font = { italic: true, color: { argb: "666666" }, size: 9 };
+    dateRow.getCell(1).alignment = { horizontal: "center" };
+    ws.mergeCells(2, 1, 2, 5);
+
+    // Spacer
+    ws.addRow([]);
+
+    // === DATOS DEL PRODUCTO ===
+    const prodTitle = ws.addRow([]);
+    sectionHeader(prodTitle, "DATOS DEL PRODUCTO", 5);
+    ws.mergeCells(prodTitle.number, 1, prodTitle.number, 5);
+
+    const prodData = [
+      ["Producto", d.nombre || "N/A", "", "Pais", d.pais],
+      ["Proveedor", d.proveedor || "N/A", "", "Moneda", d.moneda],
+      ["Cantidad", d.cantidad, "", "Incoterm", d.incoterm],
+      ["Peso Total (kg)", d.pesoTotal, "", "Volumen (m3)", d.volumen],
+      ["Tipo de Cambio", `S/ ${d.tipoCambio}`, "", "", ""],
+    ];
+    prodData.forEach((r, i) => {
+      const row = ws.addRow(r);
+      dataRow(row, r, i % 2 === 0);
+    });
+
+    ws.addRow([]);
+
+    // === GASTOS INTERNACIONALES + IMPUESTOS (side by side) ===
+    const gastosTitle = ws.addRow([]);
+    sectionHeader(gastosTitle, "GASTOS INTERNACIONALES", 5);
+    ws.mergeCells(gastosTitle.number, 1, gastosTitle.number, 5);
+
+    const gastosHeader = ws.addRow(["Concepto", "USD", "", "Concepto", "% / USD"]);
+    subHeader(gastosHeader, ["Concepto", "USD", "", "Concepto", "% / USD"]);
+
+    const gastosRows = [
+      ["Flete Internacional", d.fleteInternacional, "", "Arancel", `${d.arancel}%`],
+      ["Seguro Internacional", d.seguroInternacional, "", "IGV", `${d.igv}%`],
+      ["Gastos Bancarios", d.gastosBancarios, "", "IPM", `${d.ipm}%`],
+      ["Inspeccion", d.inspeccion, "", "Percepcion", `${d.percepcion}%`],
+      ["Certificados", d.certificados, "", "", ""],
+      ["Otros G. Int.", d.otrosGastosInt, "", "", ""],
+    ];
+    gastosRows.forEach((r, i) => {
+      const row = ws.addRow(r);
+      dataRow(row, r, i % 2 === 0);
+    });
+
+    ws.addRow([]);
+
+    // === GASTOS LOCALES ===
+    const localTitle = ws.addRow([]);
+    sectionHeader(localTitle, "GASTOS LOCALES", 5);
+    ws.mergeCells(localTitle.number, 1, localTitle.number, 5);
+
+    const localHeader = ws.addRow(["Concepto", "USD", "", "", ""]);
+    subHeader(localHeader, ["Concepto", "USD", "", "", ""]);
+
+    const localRows = [
+      ["Agencia Aduanas", d.agenciaAduanas],
+      ["Terminal Portuario", d.terminalPortuario],
+      ["Almacenaje", d.almacenaje],
+      ["Transporte Lima", d.transporteLima],
+      ["Descarga", d.descarga],
+      ["Manipuleo", d.manipuleo],
+      ["Otros G. Loc.", d.otrosGastosLoc],
+    ];
+    localRows.forEach((r, i) => {
+      const row = ws.addRow([...r, "", "", ""]);
+      dataRow(row, [...r, "", "", ""], i % 2 === 0);
+    });
+
+    ws.addRow([]);
+
+    // === RESULTADOS DEL COSTEO ===
+    const resTitle = ws.addRow([]);
+    sectionHeader(resTitle, "RESULTADOS DEL COSTEO", 5);
+    ws.mergeCells(resTitle.number, 1, resTitle.number, 5);
+
+    const resHeader = ws.addRow(["Concepto", "", "USD", "", "PEN"]);
+    subHeader(resHeader, ["Concepto", "", "USD", "", "PEN"]);
+
+    const resRows: [string, number][] = [
+      ["Costo EXW", calc.costoEXW],
+      ["Costo FOB", calc.costoFOB],
+      ["Costo CIF", calc.costoCIF],
+      ["Base Imponible", calc.baseImponible],
+      ["Derechos Arancelarios", calc.derechosArancel],
+      ["IGV", calc.igv],
+      ["IPM", calc.ipm],
+      ["Percepcion", calc.percepcion],
+      ["Tributos Totales", calc.tributos],
+      ["Gastos Internacionales", calc.gastosInt],
+      ["Gastos Locales", calc.gastosLoc],
+    ];
+    resRows.forEach((r, i) => {
+      const row = ws.addRow([r[0], "", r[1], "", r[1] * d.tipoCambio]);
+      dataRow(row, [r[0], "", r[1], "", r[1] * d.tipoCambio], i % 2 === 0);
+      // Format currency columns
+      row.getCell(3).numFmt = "$#,##0.00";
+      row.getCell(5).numFmt = "S/ #,##0.00";
+    });
+
+    ws.addRow([]);
+
+    // === RESUMEN ===
+    const sumTitle = ws.addRow([]);
+    sectionHeader(sumTitle, "RESUMEN", 5);
+    ws.mergeCells(sumTitle.number, 1, sumTitle.number, 5);
+
+    const sumRows: [string, number][] = [
+      ["COSTO PUESTO EN LIMA", calc.costoPuestoLima],
+      ["COSTO POR UNIDAD", calc.costoUnitario],
+      ["CAPITAL NECESARIO", calc.capitalNecesario],
+    ];
+    sumRows.forEach((r, i) => {
+      const row = ws.addRow([r[0], "", r[1], "", r[1] * d.tipoCambio]);
+      row.getCell(1).font = { bold: true, size: 11, color: { argb: BLUE } };
+      row.getCell(3).numFmt = "$#,##0.00";
+      row.getCell(5).numFmt = "S/ #,##0.00";
+      row.getCell(3).font = { bold: true, size: 11 };
+      row.getCell(5).font = { bold: true, size: 11, color: { argb: GOLD.replace("#", "") } };
+      dataRow(row, [r[0], "", r[1], "", r[1] * d.tipoCambio], i % 2 === 0);
+      row.getCell(1).font = { bold: true, size: 11, color: { argb: BLUE } };
+      row.getCell(3).font = { bold: true, size: 11 };
+      row.getCell(5).font = { bold: true, size: 11, color: { argb: GOLD.replace("#", "") } };
+    });
+
+    ws.addRow([]);
+
+    // === DISTRIBUCION ===
+    const distTitle = ws.addRow([]);
+    sectionHeader(distTitle, "DISTRIBUCION DEL COSTO", 5);
+    ws.mergeCells(distTitle.number, 1, distTitle.number, 5);
+
+    const distHeader = ws.addRow(["Concepto", "", "USD", "", "%"]);
+    subHeader(distHeader, ["Concepto", "", "USD", "", "%"]);
+
+    const distData: [string, number][] = [
+      ["Producto", calc.costoProducto],
+      ["Impuestos", calc.tributos],
+      ["Logistica", calc.gastosInt + calc.gastosLoc],
+    ];
+    distData.forEach((r, i) => {
+      const pct = calc.costoPuestoLima > 0 ? r[1] / calc.costoPuestoLima * 100 : 0;
+      const row = ws.addRow([r[0], "", r[1], "", `${pct.toFixed(1)}%`]);
+      dataRow(row, [r[0], "", r[1], "", `${pct.toFixed(1)}%`], i % 2 === 0);
+      row.getCell(3).numFmt = "$#,##0.00";
+    });
+
+    // Footer
+    ws.addRow([]);
+    const footerRow = ws.addRow(["RRS IMPORT Academy - Simulador de Importacion"]);
+    footerRow.getCell(1).font = { italic: true, color: { argb: "999999" }, size: 8 };
+    ws.mergeCells(footerRow.number, 1, footerRow.number, 5);
+
+    // ============ FINANCIERO SHEET ============
+    const ws2 = wb.addWorksheet("Financiero", { properties: { defaultColWidth: 18 } });
+    ws2.columns = [
+      { width: 30 }, { width: 22 }, { width: 22 },
     ];
 
-    const ws2 = XLSX.utils.aoa_to_sheet(financieroData);
-    ws2["!cols"] = [{ wch: 22 }, { wch: 15 }, { wch: 22 }, { wch: 15 }];
-    XLSX.utils.book_append_sheet(wb, ws2, "Financiero");
+    // Title
+    const fTitle = ws2.addRow(["SIMULADOR FINANCIERO - MONEDA: PEN (SOLES)"]);
+    fTitle.getCell(1).font = { bold: true, color: { argb: WHITE }, size: 14 };
+    fTitle.getCell(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: BLUE } };
+    fTitle.getCell(1).alignment = { horizontal: "center", vertical: "middle" };
+    fTitle.height = 32;
+    for (let c = 1; c <= 3; c++) {
+      fTitle.getCell(c).fill = { type: "pattern", pattern: "solid", fgColor: { argb: BLUE } };
+      fTitle.getCell(c).border = thinBorder;
+    }
+    ws2.mergeCells(1, 1, 1, 3);
 
-    XLSX.writeFile(wb, "simulacion-importacion.xlsx");
+    // Date
+    const fDate = ws2.addRow([`Fecha: ${new Date().toLocaleDateString("es-PE")}  |  Tipo Cambio: S/ ${d.tipoCambio}`]);
+    fDate.getCell(1).font = { italic: true, color: { argb: "666666" }, size: 9 };
+    fDate.getCell(1).alignment = { horizontal: "center" };
+    ws2.mergeCells(2, 1, 2, 3);
+
+    ws2.addRow([]);
+
+    // === DATOS DE VENTAS ===
+    const vTitle = ws2.addRow([]);
+    sectionHeader(vTitle, "DATOS DE VENTAS", 3);
+    ws2.mergeCells(vTitle.number, 1, vTitle.number, 3);
+
+    const vRows = [
+      ["Precio Venta Unitario", d.precioVenta * d.tipoCambio],
+      ["Cantidad a Vender", d.cantidadVender || d.cantidad],
+    ];
+    vRows.forEach((r, i) => {
+      const row = ws2.addRow([r[0], r[1], ""]);
+      dataRow(row, [r[0], r[1], ""], i % 2 === 0);
+      row.getCell(2).numFmt = "S/ #,##0.00";
+    });
+
+    ws2.addRow([]);
+
+    // === GASTOS OPERATIVOS ===
+    const gTitle = ws2.addRow([]);
+    sectionHeader(gTitle, "GASTOS OPERATIVOS (PEN)", 3);
+    ws2.mergeCells(gTitle.number, 1, gTitle.number, 3);
+
+    const gRows = [
+      ["Inversion Inicial", d.inversionInicial * d.tipoCambio],
+      ["Publicidad", d.publicidad * d.tipoCambio],
+      ["Marketing", d.marketing * d.tipoCambio],
+      ["Sueldos", d.sueldos * d.tipoCambio],
+      ["Alquiler", d.alquiler * d.tipoCambio],
+      ["Servicios", d.servicios * d.tipoCambio],
+      ["Otros", d.otrosGastosOp * d.tipoCambio],
+    ];
+    gRows.forEach((r, i) => {
+      const row = ws2.addRow([r[0], r[1], ""]);
+      dataRow(row, [r[0], r[1], ""], i % 2 === 0);
+      row.getCell(2).numFmt = "S/ #,##0.00";
+    });
+
+    ws2.addRow([]);
+
+    // === RESULTADOS FINANCIEROS ===
+    const rfTitle = ws2.addRow([]);
+    sectionHeader(rfTitle, "RESULTADOS FINANCIEROS (PEN)", 3);
+    ws2.mergeCells(rfTitle.number, 1, rfTitle.number, 3);
+
+    const rfHeader = ws2.addRow(["Concepto", "Monto (PEN)", ""]);
+    subHeader(rfHeader, ["Concepto", "Monto (PEN)", ""]);
+
+    const rfRows: [string, number][] = [
+      ["Ventas Totales", calc.ventasTotales * d.tipoCambio],
+      ["Costo Mercaderia", calc.costoPuestoLima * d.tipoCambio],
+      ["Utilidad Bruta", calc.utilidadBruta * d.tipoCambio],
+      ["Gastos Operativos", calc.gastosOp * d.tipoCambio],
+      ["Utilidad Neta", calc.utilidadNeta * d.tipoCambio],
+    ];
+    rfRows.forEach((r, i) => {
+      const row = ws2.addRow([r[0], r[1], ""]);
+      dataRow(row, [r[0], r[1], ""], i % 2 === 0);
+      row.getCell(2).numFmt = "S/ #,##0.00";
+    });
+
+    ws2.addRow([]);
+
+    // === INDICADORES ===
+    const indTitle = ws2.addRow([]);
+    sectionHeader(indTitle, "INDICADORES", 3);
+    ws2.mergeCells(indTitle.number, 1, indTitle.number, 3);
+
+    const indRows: [string, string | number][] = [
+      ["Margen", `${calc.margen.toFixed(1)}%`],
+      ["ROI", `${calc.roi.toFixed(1)}%`],
+      ["Ganancia/Unidad (PEN)", calc.gananciaUnidad * d.tipoCambio],
+      ["Punto Equilibrio (PEN)", calc.puntoEquilibrio * d.tipoCambio],
+    ];
+    indRows.forEach((r, i) => {
+      const row = ws2.addRow([r[0], r[1], ""]);
+      dataRow(row, [r[0], r[1], ""], i % 2 === 0);
+      row.getCell(1).font = { bold: true };
+      if (typeof r[1] === "number") row.getCell(2).numFmt = "S/ #,##0.00";
+    });
+
+    ws2.addRow([]);
+
+    // === DISTRIBUCION ===
+    const dTitle = ws2.addRow([]);
+    sectionHeader(dTitle, "DISTRIBUCION DEL COSTO (PEN)", 3);
+    ws2.mergeCells(dTitle.number, 1, dTitle.number, 3);
+
+    const dDistHeader = ws2.addRow(["Concepto", "Monto (PEN)", "%"]);
+    subHeader(dDistHeader, ["Concepto", "Monto (PEN)", "%"]);
+
+    const dDistData: [string, number][] = [
+      ["Producto", calc.costoProducto * d.tipoCambio],
+      ["Impuestos", calc.tributos * d.tipoCambio],
+      ["Logistica", (calc.gastosInt + calc.gastosLoc) * d.tipoCambio],
+    ];
+    dDistData.forEach((r, i) => {
+      const pct = calc.costoPuestoLima > 0 ? r[1] / (calc.costoPuestoLima * d.tipoCambio) * 100 : 0;
+      const row = ws2.addRow([r[0], r[1], `${pct.toFixed(1)}%`]);
+      dataRow(row, [r[0], r[1], `${pct.toFixed(1)}%`], i % 2 === 0);
+      row.getCell(2).numFmt = "S/ #,##0.00";
+    });
+
+    // Footer
+    ws2.addRow([]);
+    const fFooter = ws2.addRow(["RRS IMPORT Academy - Simulador Financiero"]);
+    fFooter.getCell(1).font = { italic: true, color: { argb: "999999" }, size: 8 };
+    ws2.mergeCells(fFooter.number, 1, fFooter.number, 3);
+
+    // Generate and save
+    const buffer = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "simulacion-importacion.xlsx";
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const printPage = () => window.print();
@@ -458,25 +770,41 @@ export default function Tarifarios() {
               <div className="bg-white dark:bg-dark-card rounded-2xl border border-gray-100 dark:border-white/10 p-4">
                 <h3 className="font-bold text-primary dark:text-white text-sm mb-3 flex items-center gap-2"><BarChart3 size={16} className="text-accent" /> Resultados</h3>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
-                  <ResultCard label="EXW" value={fmtUsd(calc.costoEXW)} icon={<Package size={12} className="text-blue-500" />} />
-                  <ResultCard label="FOB" value={fmtUsd(calc.costoFOB)} icon={<Globe size={12} className="text-purple-500" />} />
-                  <ResultCard label="CIF" value={fmtUsd(calc.costoCIF)} icon={<FileText size={12} className="text-emerald-500" />} />
-                  <ResultCard label="Base Imp." value={fmtUsd(calc.baseImponible)} />
-                  <ResultCard label="Arancel" value={fmtUsd(calc.derechosArancel)} color="text-orange-500" />
-                  <ResultCard label="IGV" value={fmtUsd(calc.igv)} color="text-red-500" />
-                  <ResultCard label="IPM" value={fmtUsd(calc.ipm)} color="text-yellow-600" />
-                  <ResultCard label="Percep." value={fmtUsd(calc.percepcion)} color="text-pink-500" />
-                  <ResultCard label="Tributos" value={fmtUsd(calc.tributos)} color="text-red-600" icon={<AlertCircle size={12} />} />
-                  <ResultCard label="G. Int." value={fmtUsd(calc.gastosInt)} />
-                  <ResultCard label="G. Loc." value={fmtUsd(calc.gastosLoc)} />
+                  <ResultCard label="EXW" value={fmtUsd(calc.costoEXW)} secondary={fmtPen(calc.costoEXW * d.tipoCambio)} icon={<Package size={12} className="text-blue-500" />} />
+                  <ResultCard label="FOB" value={fmtUsd(calc.costoFOB)} secondary={fmtPen(calc.costoFOB * d.tipoCambio)} icon={<Globe size={12} className="text-purple-500" />} />
+                  <ResultCard label="CIF" value={fmtUsd(calc.costoCIF)} secondary={fmtPen(calc.costoCIF * d.tipoCambio)} icon={<FileText size={12} className="text-emerald-500" />} />
+                  <ResultCard label="Base Imp." value={fmtUsd(calc.baseImponible)} secondary={fmtPen(calc.baseImponible * d.tipoCambio)} />
+                  <ResultCard label="Arancel" value={fmtUsd(calc.derechosArancel)} secondary={fmtPen(calc.derechosArancel * d.tipoCambio)} color="text-orange-500" />
+                  <ResultCard label="IGV" value={fmtUsd(calc.igv)} secondary={fmtPen(calc.igv * d.tipoCambio)} color="text-red-500" />
+                  <ResultCard label="IPM" value={fmtUsd(calc.ipm)} secondary={fmtPen(calc.ipm * d.tipoCambio)} color="text-yellow-600" />
+                  <ResultCard label="Percep." value={fmtUsd(calc.percepcion)} secondary={fmtPen(calc.percepcion * d.tipoCambio)} color="text-pink-500" />
+                  <ResultCard label="Tributos" value={fmtUsd(calc.tributos)} secondary={fmtPen(calc.tributos * d.tipoCambio)} color="text-red-600" icon={<AlertCircle size={12} />} />
+                  <ResultCard label="G. Int." value={fmtUsd(calc.gastosInt)} secondary={fmtPen(calc.gastosInt * d.tipoCambio)} />
+                  <ResultCard label="G. Loc." value={fmtUsd(calc.gastosLoc)} secondary={fmtPen(calc.gastosLoc * d.tipoCambio)} />
                   <ResultCard label="Peso" value={`${calc.pesoTotal.toFixed(1)} kg`} color="text-gray-500" />
                 </div>
                 <div className="mt-3 p-4 bg-gradient-to-r from-primary to-primary-light rounded-xl">
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
-                    <div><div className="text-[9px] text-white/60 uppercase font-bold">Puesto en Lima</div><div className="text-lg md:text-xl font-extrabold text-white">{fmtUsd(calc.costoPuestoLima)}</div></div>
-                    <div><div className="text-[9px] text-white/60 uppercase font-bold">Por Unidad</div><div className="text-lg md:text-xl font-extrabold text-accent">{fmtUsd(calc.costoUnitario)}</div></div>
-                    <div><div className="text-[9px] text-white/60 uppercase font-bold">Capital</div><div className="text-lg md:text-xl font-extrabold text-white">{fmtUsd(calc.capitalNecesario)}</div></div>
-                    <div><div className="text-[9px] text-white/60 uppercase font-bold">Total</div><div className="text-lg md:text-xl font-extrabold text-accent">{fmtUsd(calc.costoPuestoLima)}</div></div>
+                    <div>
+                      <div className="text-[9px] text-white/60 uppercase font-bold">Puesto en Lima</div>
+                      <div className="text-lg md:text-xl font-extrabold text-white">{fmtUsd(calc.costoPuestoLima)}</div>
+                      <div className="flex items-center justify-center gap-1 mt-1"><span className="text-[7px] px-1 py-0.5 bg-accent rounded text-white font-bold">S/</span><span className="text-xs text-accent font-bold">{fmtPen(calc.costoPuestoLima * d.tipoCambio).replace("S/", "").trim()}</span></div>
+                    </div>
+                    <div>
+                      <div className="text-[9px] text-white/60 uppercase font-bold">Por Unidad</div>
+                      <div className="text-lg md:text-xl font-extrabold text-accent">{fmtUsd(calc.costoUnitario)}</div>
+                      <div className="flex items-center justify-center gap-1 mt-1"><span className="text-[7px] px-1 py-0.5 bg-white/20 rounded text-white font-bold">S/</span><span className="text-xs text-white/80 font-bold">{fmtPen(calc.costoUnitario * d.tipoCambio).replace("S/", "").trim()}</span></div>
+                    </div>
+                    <div>
+                      <div className="text-[9px] text-white/60 uppercase font-bold">Capital</div>
+                      <div className="text-lg md:text-xl font-extrabold text-white">{fmtUsd(calc.capitalNecesario)}</div>
+                      <div className="flex items-center justify-center gap-1 mt-1"><span className="text-[7px] px-1 py-0.5 bg-accent rounded text-white font-bold">S/</span><span className="text-xs text-accent font-bold">{fmtPen(calc.capitalNecesario * d.tipoCambio).replace("S/", "").trim()}</span></div>
+                    </div>
+                    <div>
+                      <div className="text-[9px] text-white/60 uppercase font-bold">Total</div>
+                      <div className="text-lg md:text-xl font-extrabold text-accent">{fmtUsd(calc.costoPuestoLima)}</div>
+                      <div className="flex items-center justify-center gap-1 mt-1"><span className="text-[7px] px-1 py-0.5 bg-white/20 rounded text-white font-bold">S/</span><span className="text-xs text-white/80 font-bold">{fmtPen(calc.costoPuestoLima * d.tipoCambio).replace("S/", "").trim()}</span></div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -490,7 +818,14 @@ export default function Tarifarios() {
                     { label: "Logistica", value: calc.gastosInt + calc.gastosLoc, color: "bg-emerald-500", pct: calc.costoPuestoLima > 0 ? ((calc.gastosInt + calc.gastosLoc) / calc.costoPuestoLima * 100) : 0 },
                   ].map((item) => (
                     <div key={item.label}>
-                      <div className="flex justify-between text-[11px] mb-1"><span className="text-gray-600 dark:text-gray-400">{item.label}</span><span className="font-bold text-primary dark:text-white">{fmtUsd(item.value)} ({item.pct.toFixed(1)}%)</span></div>
+                      <div className="flex justify-between text-[11px] mb-1">
+                        <span className="text-gray-600 dark:text-gray-400">{item.label}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-primary dark:text-white">{fmtUsd(item.value)}</span>
+                          <span className="text-[8px] px-1 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded font-bold">S/{(item.value * d.tipoCambio).toFixed(0)}</span>
+                          <span className="text-gray-400 text-[10px]">({item.pct.toFixed(1)}%)</span>
+                        </div>
+                      </div>
                       <div className="w-full bg-gray-100 dark:bg-white/10 rounded-full h-1.5"><div className={`${item.color} rounded-full h-1.5 transition-all duration-700`} style={{ width: `${Math.min(item.pct, 100)}%` }} /></div>
                     </div>
                   ))}
@@ -523,20 +858,20 @@ export default function Tarifarios() {
               <div className="bg-white dark:bg-dark-card rounded-2xl border border-gray-100 dark:border-white/10 p-4">
                 <h3 className="font-bold text-primary dark:text-white text-sm mb-3 flex items-center gap-2"><TrendingUp size={16} className="text-accent" /> Resultados Financieros</h3>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
-                  <ResultCard label="Ventas" value={fmtUsd(calc.ventasTotales)} color="text-blue-600" />
-                  <ResultCard label="Costo Merc." value={fmtUsd(calc.costoPuestoLima)} color="text-orange-500" />
-                  <ResultCard label="Utilidad Bruta" value={fmtUsd(calc.utilidadBruta)} color={calc.utilidadBruta >= 0 ? "text-emerald-600" : "text-red-600"} />
-                  <ResultCard label="G. Operativos" value={fmtUsd(calc.gastosOp)} color="text-red-500" />
-                  <ResultCard label="Utilidad Neta" value={fmtUsd(calc.utilidadNeta)} color={calc.utilidadNeta >= 0 ? "text-emerald-600" : "text-red-600"} />
+                  <ResultCard label="Ventas" value={fmtPen(calc.ventasTotales * d.tipoCambio)} color="text-blue-600" />
+                  <ResultCard label="Costo Merc." value={fmtPen(calc.costoPuestoLima * d.tipoCambio)} color="text-orange-500" />
+                  <ResultCard label="Utilidad Bruta" value={fmtPen(calc.utilidadBruta * d.tipoCambio)} color={calc.utilidadBruta >= 0 ? "text-emerald-600" : "text-red-600"} />
+                  <ResultCard label="G. Operativos" value={fmtPen(calc.gastosOp * d.tipoCambio)} color="text-red-500" />
+                  <ResultCard label="Utilidad Neta" value={fmtPen(calc.utilidadNeta * d.tipoCambio)} color={calc.utilidadNeta >= 0 ? "text-emerald-600" : "text-red-600"} />
                   <ResultCard label="Margen" value={`${calc.margen.toFixed(1)}%`} color={calc.margen >= 0 ? "text-emerald-600" : "text-red-600"} />
                   <ResultCard label="ROI" value={`${calc.roi.toFixed(1)}%`} color="text-accent" />
-                  <ResultCard label="Ganancia/Unid" value={fmtUsd(calc.gananciaUnidad)} color={calc.gananciaUnidad >= 0 ? "text-emerald-600" : "text-red-600"} />
+                  <ResultCard label="Ganancia/Unid" value={fmtPen(calc.gananciaUnidad * d.tipoCambio)} color={calc.gananciaUnidad >= 0 ? "text-emerald-600" : "text-red-600"} />
                 </div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-3 text-center border border-blue-100 dark:border-blue-500/20">
                   <div className="text-[9px] text-blue-600 dark:text-blue-400 font-bold uppercase">P. Equilibrio</div>
-                  <div className="text-lg font-extrabold text-blue-600 dark:text-blue-400">{fmtUsd(calc.puntoEquilibrio)}</div>
+                  <div className="text-lg font-extrabold text-blue-600 dark:text-blue-400">{fmtPen(calc.puntoEquilibrio * d.tipoCambio)}</div>
                 </div>
                 <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl p-3 text-center border border-emerald-100 dark:border-emerald-500/20">
                   <div className="text-[9px] text-emerald-600 dark:text-emerald-400 font-bold uppercase">Rentabilidad</div>
@@ -556,7 +891,14 @@ export default function Tarifarios() {
                     { label: "Logistica", value: calc.gastosInt + calc.gastosLoc, color: "bg-emerald-500", pct: calc.costoPuestoLima > 0 ? ((calc.gastosInt + calc.gastosLoc) / calc.costoPuestoLima * 100) : 0 },
                   ].map((item) => (
                     <div key={item.label}>
-                      <div className="flex justify-between text-[11px] mb-1"><span className="text-gray-600 dark:text-gray-400">{item.label}</span><span className="font-bold text-primary dark:text-white">{fmtUsd(item.value)} ({item.pct.toFixed(1)}%)</span></div>
+                      <div className="flex justify-between text-[11px] mb-1">
+                        <span className="text-gray-600 dark:text-gray-400">{item.label}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[8px] px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded font-bold">PEN</span>
+                          <span className="font-bold text-primary dark:text-white">{fmtPen(item.value * d.tipoCambio)}</span>
+                          <span className="text-gray-400 text-[10px]">({item.pct.toFixed(1)}%)</span>
+                        </div>
+                      </div>
                       <div className="w-full bg-gray-100 dark:bg-white/10 rounded-full h-1.5"><div className={`${item.color} rounded-full h-1.5 transition-all duration-700`} style={{ width: `${Math.min(item.pct, 100)}%` }} /></div>
                     </div>
                   ))}
