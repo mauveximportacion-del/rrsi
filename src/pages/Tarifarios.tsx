@@ -109,12 +109,13 @@ export default function Tarifarios() {
 
     const ventasTotales = d.precioVenta * (d.cantidadVender || cant);
     const gastosOp = d.publicidad + d.marketing + d.sueldos + d.alquiler + d.servicios + d.otrosGastosOp;
-    const utilidadBruta = ventasTotales - costoPuestoLima;
+    const costoPuestoLimaPEN = costoPuestoLima * d.tipoCambio;
+    const utilidadBruta = ventasTotales - costoPuestoLimaPEN;
     const utilidadNeta = utilidadBruta - gastosOp;
     const margen = ventasTotales > 0 ? (utilidadNeta / ventasTotales) * 100 : 0;
-    const roi = capitalNecesario > 0 ? (utilidadNeta / capitalNecesario) * 100 : 0;
+    const roi = capitalNecesario > 0 ? (utilidadNeta / (capitalNecesario * d.tipoCambio)) * 100 : 0;
     const gananciaUnidad = (d.cantidadVender || cant) > 0 ? utilidadNeta / (d.cantidadVender || cant) : 0;
-    const puntoEquilibrio = margen > 0 ? capitalNecesario / (margen / 100) : 0;
+    const puntoEquilibrio = margen > 0 ? (capitalNecesario * d.tipoCambio) / (margen / 100) : 0;
 
     return { costoProducto, costoEXW, costoFOB, costoCIF, derechosArancel, igv, ipm, percepcion, tributos, gastosInt, gastosLoc, costoPuestoLima, costoUnitario, capitalNecesario, ventasTotales, utilidadBruta, gastosOp, utilidadNeta, margen, roi, gananciaUnidad, puntoEquilibrio, baseImponible, pesoTotal };
   }, [d]);
@@ -568,7 +569,7 @@ export default function Tarifarios() {
     ws2.mergeCells(vTitle.number, 1, vTitle.number, 3);
 
     const vRows = [
-      ["Precio Venta Unitario", d.precioVenta * d.tipoCambio],
+      ["Precio Venta Unitario", d.precioVenta],
       ["Cantidad a Vender", d.cantidadVender || d.cantidad],
     ];
     vRows.forEach((r, i) => {
@@ -610,11 +611,11 @@ export default function Tarifarios() {
     subHeader(rfHeader, ["Concepto", "Monto (PEN)", ""]);
 
     const rfRows: [string, number][] = [
-      ["Ventas Totales", calc.ventasTotales * d.tipoCambio],
+      ["Ventas Totales", calc.ventasTotales],
       ["Costo Mercaderia", calc.costoPuestoLima * d.tipoCambio],
-      ["Utilidad Bruta", calc.utilidadBruta * d.tipoCambio],
+      ["Utilidad Bruta", calc.utilidadBruta],
       ["Gastos Operativos", calc.gastosOp * d.tipoCambio],
-      ["Utilidad Neta", calc.utilidadNeta * d.tipoCambio],
+      ["Utilidad Neta", calc.utilidadNeta],
     ];
     rfRows.forEach((r, i) => {
       const row = ws2.addRow([r[0], r[1], ""]);
@@ -632,8 +633,8 @@ export default function Tarifarios() {
     const indRows: [string, string | number][] = [
       ["Margen", `${calc.margen.toFixed(1)}%`],
       ["ROI", `${calc.roi.toFixed(1)}%`],
-      ["Ganancia/Unidad (PEN)", calc.gananciaUnidad * d.tipoCambio],
-      ["Punto Equilibrio (PEN)", calc.puntoEquilibrio * d.tipoCambio],
+      ["Ganancia/Unidad (PEN)", calc.gananciaUnidad],
+      ["Punto Equilibrio (PEN)", calc.puntoEquilibrio],
     ];
     indRows.forEach((r, i) => {
       const row = ws2.addRow([r[0], r[1], ""]);
@@ -858,20 +859,20 @@ export default function Tarifarios() {
               <div className="bg-white dark:bg-dark-card rounded-2xl border border-gray-100 dark:border-white/10 p-4">
                 <h3 className="font-bold text-primary dark:text-white text-sm mb-3 flex items-center gap-2"><TrendingUp size={16} className="text-accent" /> Resultados Financieros</h3>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
-                  <ResultCard label="Ventas" value={fmtPen(calc.ventasTotales * d.tipoCambio)} color="text-blue-600" />
+                  <ResultCard label="Ventas" value={fmtPen(calc.ventasTotales)} color="text-blue-600" />
                   <ResultCard label="Costo Merc." value={fmtPen(calc.costoPuestoLima * d.tipoCambio)} color="text-orange-500" />
-                  <ResultCard label="Utilidad Bruta" value={fmtPen(calc.utilidadBruta * d.tipoCambio)} color={calc.utilidadBruta >= 0 ? "text-emerald-600" : "text-red-600"} />
+                  <ResultCard label="Utilidad Bruta" value={fmtPen(calc.utilidadBruta)} color={calc.utilidadBruta >= 0 ? "text-emerald-600" : "text-red-600"} />
                   <ResultCard label="G. Operativos" value={fmtPen(calc.gastosOp * d.tipoCambio)} color="text-red-500" />
-                  <ResultCard label="Utilidad Neta" value={fmtPen(calc.utilidadNeta * d.tipoCambio)} color={calc.utilidadNeta >= 0 ? "text-emerald-600" : "text-red-600"} />
+                  <ResultCard label="Utilidad Neta" value={fmtPen(calc.utilidadNeta)} color={calc.utilidadNeta >= 0 ? "text-emerald-600" : "text-red-600"} />
                   <ResultCard label="Margen" value={`${calc.margen.toFixed(1)}%`} color={calc.margen >= 0 ? "text-emerald-600" : "text-red-600"} />
                   <ResultCard label="ROI" value={`${calc.roi.toFixed(1)}%`} color="text-accent" />
-                  <ResultCard label="Ganancia/Unid" value={fmtPen(calc.gananciaUnidad * d.tipoCambio)} color={calc.gananciaUnidad >= 0 ? "text-emerald-600" : "text-red-600"} />
+                  <ResultCard label="Ganancia/Unid" value={fmtPen(calc.gananciaUnidad)} color={calc.gananciaUnidad >= 0 ? "text-emerald-600" : "text-red-600"} />
                 </div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-3 text-center border border-blue-100 dark:border-blue-500/20">
                   <div className="text-[9px] text-blue-600 dark:text-blue-400 font-bold uppercase">P. Equilibrio</div>
-                  <div className="text-lg font-extrabold text-blue-600 dark:text-blue-400">{fmtPen(calc.puntoEquilibrio * d.tipoCambio)}</div>
+                  <div className="text-lg font-extrabold text-blue-600 dark:text-blue-400">{fmtPen(calc.puntoEquilibrio)}</div>
                 </div>
                 <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl p-3 text-center border border-emerald-100 dark:border-emerald-500/20">
                   <div className="text-[9px] text-emerald-600 dark:text-emerald-400 font-bold uppercase">Rentabilidad</div>
